@@ -9,6 +9,72 @@
         <el-radio-button label="resolved">已解决</el-radio-button>
       </el-radio-group>
     </div>
+
+    <!-- 统计卡片 -->
+    <el-row :gutter="20" style="margin-bottom: 20px">
+      <el-col :span="6">
+        <el-card class="stat-card">
+          <div class="stat-content">
+            <div class="stat-icon" style="background: #409EFF;">
+              <el-icon size="24"><Bell /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ statistics.total_alerts }}</div>
+              <div class="stat-label">总告警数</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="stat-card">
+          <div class="stat-content">
+            <div class="stat-icon" style="background: #E6A23C;">
+              <el-icon size="24"><WarningFilled /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ statistics.open_alerts }}</div>
+              <div class="stat-label">待处理</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="stat-card">
+          <div class="stat-content">
+            <div class="stat-icon" style="background: #F56C6C;">
+              <el-icon size="24"><CircleClose /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ statistics.critical_alerts }}</div>
+              <div class="stat-label">严重告警</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card class="stat-card">
+          <div class="stat-content">
+            <div class="stat-icon" style="background: #67C23A;">
+              <el-icon size="24"><CircleCheck /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ statistics.resolved_alerts }}</div>
+              <div class="stat-label">已解决</div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 告警趋势图 -->
+    <el-card style="margin-bottom: 20px">
+      <template #header>
+        <div class="card-header">
+          <span>告警趋势（最近7天）</span>
+        </div>
+      </template>
+      <div ref="chartRef" style="width: 100%; height: 300px"></div>
+    </el-card>
     
     <el-card>
       <el-table :data="alerts" v-loading="loading" stripe>
@@ -66,13 +132,30 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Bell, WarningFilled, CircleClose, CircleCheck } from '@element-plus/icons-vue'
+import * as echarts from 'echarts'
 import api from '@/api'
 
 const alerts = ref([])
 const loading = ref(false)
 const statusFilter = ref('open')
+const chartRef = ref()
+let chartInstance = null
+
+const statistics = ref({
+  total_alerts: 0,
+  open_alerts: 0,
+  acknowledged_alerts: 0,
+  resolved_alerts: 0,
+  critical_alerts: 0,
+  error_alerts: 0,
+  warning_alerts: 0,
+  info_alerts: 0,
+  alerts_by_type: {},
+  alerts_by_server: {}
+})
 
 const getLevelType = (level) => {
   const types = {
@@ -115,11 +198,123 @@ const fetchAlerts = async () => {
   }
 }
 
+const fetchStatistics = async () => {
+  try {
+    const response = await api.get('/alert-rules/statistics/overview')
+    statistics.value = response.data
+  } catch (error) {
+    console.error('Failed to fetch statistics:', error)
+  }
+}
+
+const fetchTrends = async () => {
+  try {
+    const response = await api.get('/alert-rules/statistics/trends')
+    const trends = response.data
+    
+    await nextTick()
+    initChart(trends)
+  } catch (error) {
+    console.error('Failed to fetch trends:', error)
+  }
+}
+
+const initChart = (trends) => {
+  if (!chartRef.value) return
+  
+  if (chartInstance) {
+    chartInstance.dispose()
+  }
+  
+  chartInstance = echarts.init(chartRef.value)
+  
+  const dates = trends.map(t => t.date)
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'cross'
+      }
+    },
+    legend: {
+      data: ['严重', '错误', '警告', '信息']
+    },
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      containLabel: true
+    },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: dates
+    },
+    yAxis: {
+      type: 'value'
+    },
+    series: [
+      {
+        name: '严重',
+        type: 'line',
+        stack: 'Total',
+        smooth: true,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.5 },
+        emphasis: { focus: 'series' },
+        data: trends.map(t => t.critical),
+        itemStyle: { color: '#F56C6C' }
+      },
+      {
+        name: '错误',
+        type: 'line',
+        stack: 'Total',
+        smooth: true,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.5 },
+        emphasis: { focus: 'series' },
+        data: trends.map(t => t.error),
+        itemStyle: { color: '#E6A23C' }
+      },
+      {
+        name: '警告',
+        type: 'line',
+        stack: 'Total',
+        smooth: true,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.5 },
+        emphasis: { focus: 'series' },
+        data: trends.map(t => t.warning),
+        itemStyle: { color: '#F39C12' }
+      },
+      {
+        name: '信息',
+        type: 'line',
+        stack: 'Total',
+        smooth: true,
+        lineStyle: { width: 2 },
+        areaStyle: { opacity: 0.5 },
+        emphasis: { focus: 'series' },
+        data: trends.map(t => t.info),
+        itemStyle: { color: '#909399' }
+      }
+    ]
+  }
+  
+  chartInstance.setOption(option)
+  
+  // 响应式
+  window.addEventListener('resize', () => {
+    chartInstance?.resize()
+  })
+}
+
 const acknowledgeAlert = async (alert) => {
   try {
     await api.post(`/alerts/${alert.id}/acknowledge`)
     ElMessage.success('已确认告警')
     fetchAlerts()
+    fetchStatistics()
   } catch (error) {
     console.error('Failed to acknowledge alert:', error)
   }
@@ -130,6 +325,7 @@ const resolveAlert = async (alert) => {
     await api.post(`/alerts/${alert.id}/resolve`)
     ElMessage.success('已解决告警')
     fetchAlerts()
+    fetchStatistics()
   } catch (error) {
     console.error('Failed to resolve alert:', error)
   }
@@ -137,6 +333,8 @@ const resolveAlert = async (alert) => {
 
 onMounted(() => {
   fetchAlerts()
+  fetchStatistics()
+  fetchTrends()
 })
 </script>
 
@@ -156,6 +354,55 @@ onMounted(() => {
   font-size: 24px;
   margin: 0;
   color: #333;
+}
+
+.stat-card {
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.stat-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.stat-info {
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #303133;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #909399;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 </style>
 

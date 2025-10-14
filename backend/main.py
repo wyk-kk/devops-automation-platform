@@ -4,7 +4,7 @@ from app.core.config import settings
 from app.core.database import init_db, get_db
 from app.core.security import get_password_hash
 from app.models.user import User
-from app.api import auth, servers, scripts, users, alerts, tasks
+from app.api import auth, servers, scripts, users, alerts, tasks, alert_rules, kubernetes
 from app.services.scheduler_service import scheduler_service
 
 # 创建FastAPI应用
@@ -30,6 +30,8 @@ app.include_router(scripts.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(alerts.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
+app.include_router(alert_rules.router, prefix="/api")
+app.include_router(kubernetes.router, prefix="/api")
 
 
 @app.on_event("startup")

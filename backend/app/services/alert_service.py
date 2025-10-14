@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 from app.models.alert import Alert
 from app.schemas.alert import AlertCreate
@@ -61,53 +61,78 @@ class AlertService:
         return alert
     
     @staticmethod
+    def check_server_alerts_with_rules(
+        db: Session, 
+        server_id: int, 
+        metrics: Dict[str, float]
+    ) -> List[Alert]:
+        """
+        使用动态规则检查服务器告警
+        
+        Args:
+            db: 数据库会话
+            server_id: 服务器ID
+            metrics: 指标数据字典 {"cpu": 85.5, "memory": 70.2, "disk": 90.0}
+        
+        Returns:
+            触发的告警列表
+        """
+        from app.services.alert_rule_service import AlertRuleService
+        from app.services.notification_service import NotificationService
+        
+        alerts = []
+        
+        # 遍历所有指标
+        for metric_type, current_value in metrics.items():
+            # 获取适用的规则
+            rules = AlertRuleService.get_applicable_rules(db, server_id, metric_type)
+            
+            for rule in rules:
+                # 检查是否在静默期
+                if AlertRuleService.is_silenced(db, rule.id, server_id):
+                    continue
+                
+                # 检查值是否满足规则条件
+                if AlertRuleService.check_value_against_rule(
+                    current_value, 
+                    rule.threshold_value, 
+                    rule.threshold_operator
+                ):
+                    # 创建告警
+                    alert = AlertCreate(
+                        server_id=server_id,
+                        alert_type=metric_type,
+                        level=rule.alert_level,
+                        title=f"{rule.name}",
+                        message=f"{metric_type.upper()}使用率达到 {current_value}%，超过阈值 {rule.threshold_value}%",
+                        current_value=current_value,
+                        threshold_value=rule.threshold_value
+                    )
+                    
+                    db_alert = AlertService.create_alert(db, alert)
+                    alerts.append(db_alert)
+                    
+                    # 发送通知
+                    NotificationService.send_notification_by_rule(db, db_alert, rule)
+                    
+                    # 设置静默期
+                    AlertRuleService.set_silence(db, rule.id, server_id, rule.silence_duration)
+        
+        return alerts
+    
+    @staticmethod
     def check_server_alerts(db: Session, server_id: int, 
                            cpu_percent: float, memory_percent: float, 
                            disk_percent: float) -> List[Alert]:
-        """检查服务器告警"""
-        alerts = []
+        """
+        检查服务器告警（兼容旧接口）
+        使用动态规则系统
+        """
+        metrics = {
+            "cpu": cpu_percent,
+            "memory": memory_percent,
+            "disk": disk_percent
+        }
         
-        # CPU告警阈值
-        cpu_threshold = 80.0
-        if cpu_percent > cpu_threshold:
-            alert = AlertCreate(
-                server_id=server_id,
-                alert_type="cpu",
-                level="warning" if cpu_percent < 90 else "critical",
-                title=f"CPU使用率过高",
-                message=f"CPU使用率达到 {cpu_percent}%",
-                current_value=cpu_percent,
-                threshold_value=cpu_threshold
-            )
-            alerts.append(AlertService.create_alert(db, alert))
-        
-        # 内存告警阈值
-        memory_threshold = 80.0
-        if memory_percent > memory_threshold:
-            alert = AlertCreate(
-                server_id=server_id,
-                alert_type="memory",
-                level="warning" if memory_percent < 90 else "critical",
-                title=f"内存使用率过高",
-                message=f"内存使用率达到 {memory_percent}%",
-                current_value=memory_percent,
-                threshold_value=memory_threshold
-            )
-            alerts.append(AlertService.create_alert(db, alert))
-        
-        # 磁盘告警阈值
-        disk_threshold = 80.0
-        if disk_percent > disk_threshold:
-            alert = AlertCreate(
-                server_id=server_id,
-                alert_type="disk",
-                level="warning" if disk_percent < 90 else "critical",
-                title=f"磁盘使用率过高",
-                message=f"磁盘使用率达到 {disk_percent}%",
-                current_value=disk_percent,
-                threshold_value=disk_threshold
-            )
-            alerts.append(AlertService.create_alert(db, alert))
-        
-        return alerts
+        return AlertService.check_server_alerts_with_rules(db, server_id, metrics)
 

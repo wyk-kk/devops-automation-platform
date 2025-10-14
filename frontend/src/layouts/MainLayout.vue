@@ -6,6 +6,7 @@
       </div>
       <el-menu
         :default-active="activeMenu"
+        :default-openeds="['alerts']"
         router
         background-color="#304156"
         text-color="#bfcbd9"
@@ -15,9 +16,9 @@
           <el-icon><Odometer /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
-        <el-menu-item index="/servers">
-          <el-icon><Monitor /></el-icon>
-          <span>服务器管理</span>
+        <el-menu-item index="/resources">
+          <el-icon><Box /></el-icon>
+          <span>资源管理</span>
         </el-menu-item>
         <el-menu-item index="/scripts">
           <el-icon><Document /></el-icon>
@@ -27,10 +28,23 @@
           <el-icon><Clock /></el-icon>
           <span>任务调度</span>
         </el-menu-item>
-        <el-menu-item index="/alerts">
-          <el-icon><Bell /></el-icon>
-          <span>告警管理</span>
-        </el-menu-item>
+        
+        <!-- 告警管理子菜单 -->
+        <el-sub-menu index="alerts">
+          <template #title>
+            <el-icon><Bell /></el-icon>
+            <span>告警管理</span>
+          </template>
+          <el-menu-item index="/alerts">
+            <el-icon><Warning /></el-icon>
+            <span>告警列表</span>
+          </el-menu-item>
+          <el-menu-item index="/alert-rules">
+            <el-icon><Setting /></el-icon>
+            <span>告警规则</span>
+          </el-menu-item>
+        </el-sub-menu>
+        
         <el-menu-item index="/users" v-if="authStore.user?.is_superuser">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
@@ -71,9 +85,12 @@ import { useAuthStore } from '@/stores/auth'
 import { 
   Odometer, 
   Monitor, 
+  Box,
   Document, 
   Clock, 
   Bell, 
+  Warning,
+  Setting,
   User,
   ArrowDown 
 } from '@element-plus/icons-vue'
@@ -82,7 +99,15 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-const activeMenu = computed(() => route.path)
+// 计算当前激活的菜单项
+const activeMenu = computed(() => {
+  const path = route.path
+  // 如果是告警相关的路由，返回具体的路径
+  if (path.startsWith('/alerts') || path.startsWith('/alert-rules')) {
+    return path
+  }
+  return path
+})
 
 const handleCommand = (command) => {
   if (command === 'logout') {
@@ -138,6 +163,32 @@ const handleCommand = (command) => {
 .main-content {
   background-color: #f0f2f5;
   padding: 20px;
+}
+
+/* 子菜单样式 */
+:deep(.el-sub-menu__title) {
+  color: #bfcbd9 !important;
+}
+
+:deep(.el-sub-menu__title:hover) {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+:deep(.el-menu--inline) {
+  background-color: #1f2d3d !important;
+}
+
+:deep(.el-menu-item) {
+  min-width: 200px;
+}
+
+:deep(.el-sub-menu .el-menu-item) {
+  padding-left: 50px !important;
+  background-color: #1f2d3d !important;
+}
+
+:deep(.el-sub-menu .el-menu-item:hover) {
+  background-color: rgba(0, 0, 0, 0.3) !important;
 }
 </style>
 

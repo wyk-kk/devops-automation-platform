@@ -23,6 +23,11 @@ const routes = [
         component: () => import('@/views/Servers.vue')
       },
       {
+        path: 'resources',
+        name: 'Resources',
+        component: () => import('@/views/Resources.vue')
+      },
+      {
         path: 'scripts',
         name: 'Scripts',
         component: () => import('@/views/Scripts.vue')
@@ -36,6 +41,11 @@ const routes = [
         path: 'alerts',
         name: 'Alerts',
         component: () => import('@/views/Alerts.vue')
+      },
+      {
+        path: 'alert-rules',
+        name: 'AlertRules',
+        component: () => import('@/views/AlertRules.vue')
       },
       {
         path: 'users',
