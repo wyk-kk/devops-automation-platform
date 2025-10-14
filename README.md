@@ -113,7 +113,31 @@ project_2/
 
 ## 快速开始
 
-### 后端启动
+### 🐳 方式一：Docker部署（推荐，适合演示和答辩）
+
+**一键启动，无需配置环境！**
+
+```bash
+# Linux/Mac
+./docker-start.sh
+
+# Windows
+docker-start.bat
+
+# 或手动启动
+docker-compose up -d
+```
+
+访问：
+- 前端页面: http://localhost
+- 后端API: http://localhost:8000
+- API文档: http://localhost:8000/docs
+
+详见：[Docker部署指南](./DOCKER_DEPLOYMENT.md)
+
+### 💻 方式二：本地开发部署
+
+#### 后端启动
 
 ```bash
 # 进入后端目录
@@ -128,7 +152,7 @@ python main.py
 
 访问 http://localhost:8000/docs 查看API文档
 
-### 前端启动
+#### 前端启动
 
 ```bash
 # 进入前端目录
