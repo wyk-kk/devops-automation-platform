@@ -32,6 +32,11 @@ echo.
 
 REM 启动服务
 echo [INFO] 启动服务...
+
+REM 禁用BuildKit以提高兼容性
+set DOCKER_BUILDKIT=0
+set COMPOSE_DOCKER_CLI_BUILD=0
+
 docker-compose up -d --build
 
 if errorlevel 1 (

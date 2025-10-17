@@ -68,6 +68,10 @@ check_ports() {
 start_services() {
     print_info "启动服务..."
     
+    # 禁用BuildKit以提高兼容性
+    export DOCKER_BUILDKIT=0
+    export COMPOSE_DOCKER_CLI_BUILD=0
+    
     # 构建并启动
     docker-compose up -d --build
     

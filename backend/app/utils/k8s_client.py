@@ -46,64 +46,114 @@ class K8sClient:
         self._core_v1 = None
         self._apps_v1 = None
     
-    def connect(self) -> bool:
-        """连接到K8s集群"""
+    def connect(self) -> tuple[bool, Optional[str]]:
+        """
+        连接到K8s集群
+        
+        Returns:
+            (连接成功/失败, 错误信息)
+        """
+        self._temp_files = []  # 存储临时文件路径，用于清理
+        
         try:
             configuration = client.Configuration()
             
             if self.auth_type == "kubeconfig" and self.kubeconfig:
                 # 使用kubeconfig
-                with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml') as f:
-                    f.write(self.kubeconfig)
-                    kubeconfig_path = f.name
+                kubeconfig_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.yaml')
+                kubeconfig_file.write(self.kubeconfig)
+                kubeconfig_file.close()
+                self._temp_files.append(kubeconfig_file.name)
                 
                 try:
-                    config.load_kube_config(config_file=kubeconfig_path)
-                finally:
-                    os.unlink(kubeconfig_path)
+                    config.load_kube_config(config_file=kubeconfig_file.name)
+                    # 获取当前配置
+                    configuration = client.Configuration.get_default_copy()
+                except Exception as e:
+                    return False, f"Kubeconfig加载失败: {str(e)}"
             
             elif self.auth_type == "token" and self.token:
                 # 使用Token认证
+                if not self.api_server:
+                    return False, "API Server地址不能为空"
+                
                 configuration.host = self.api_server
                 configuration.api_key = {"authorization": f"Bearer {self.token}"}
                 
                 if self.ca_cert:
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                        f.write(self.ca_cert)
-                        configuration.ssl_ca_cert = f.name
+                    ca_cert_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.crt')
+                    ca_cert_file.write(self.ca_cert)
+                    ca_cert_file.close()
+                    self._temp_files.append(ca_cert_file.name)
+                    configuration.ssl_ca_cert = ca_cert_file.name
                 else:
+                    # 跳过SSL验证（仅用于测试环境）
                     configuration.verify_ssl = False
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
             elif self.auth_type == "cert":
                 # 使用证书认证
+                if not self.api_server:
+                    return False, "API Server地址不能为空"
+                
                 configuration.host = self.api_server
                 
                 if self.ca_cert:
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                        f.write(self.ca_cert)
-                        configuration.ssl_ca_cert = f.name
+                    ca_cert_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.crt')
+                    ca_cert_file.write(self.ca_cert)
+                    ca_cert_file.close()
+                    self._temp_files.append(ca_cert_file.name)
+                    configuration.ssl_ca_cert = ca_cert_file.name
                 
-                if self.client_cert:
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                        f.write(self.client_cert)
-                        configuration.cert_file = f.name
-                
-                if self.client_key:
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                        f.write(self.client_key)
-                        configuration.key_file = f.name
+                if self.client_cert and self.client_key:
+                    client_cert_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.crt')
+                    client_cert_file.write(self.client_cert)
+                    client_cert_file.close()
+                    self._temp_files.append(client_cert_file.name)
+                    configuration.cert_file = client_cert_file.name
+                    
+                    client_key_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.key')
+                    client_key_file.write(self.client_key)
+                    client_key_file.close()
+                    self._temp_files.append(client_key_file.name)
+                    configuration.key_file = client_key_file.name
+                else:
+                    return False, "客户端证书和密钥不能为空"
+            else:
+                return False, f"不支持的认证类型: {self.auth_type}"
             
+            # 设置超时
+            configuration.timeout = 10
+            
+            # 创建API客户端
             self._api_client = client.ApiClient(configuration)
             self._core_v1 = client.CoreV1Api(self._api_client)
             self._apps_v1 = client.AppsV1Api(self._api_client)
             
-            # 测试连接
-            self._core_v1.list_namespace(limit=1)
-            return True
+            # 测试连接 - 尝试获取命名空间列表
+            try:
+                self._core_v1.list_namespace(limit=1, _request_timeout=5)
+            except ApiException as e:
+                if e.status == 401:
+                    return False, "认证失败：Token或证书无效"
+                elif e.status == 403:
+                    return False, "权限不足：请检查账号权限"
+                elif e.status == 404:
+                    return False, "API端点不存在：请检查API Server地址"
+                else:
+                    return False, f"API调用失败 ({e.status}): {e.reason}"
             
+            return True, None
+            
+        except ApiException as e:
+            error_msg = f"Kubernetes API错误 ({e.status}): {e.reason}"
+            print(error_msg)
+            return False, error_msg
         except Exception as e:
-            print(f"K8s连接失败: {str(e)}")
-            return False
+            error_msg = f"连接失败: {type(e).__name__} - {str(e)}"
+            print(error_msg)
+            return False, error_msg
     
     def get_version(self) -> Optional[str]:
         """获取Kubernetes版本"""
@@ -326,7 +376,19 @@ class K8sClient:
             return False
     
     def close(self):
-        """关闭连接"""
+        """关闭连接并清理临时文件"""
         if self._api_client:
-            self._api_client.rest_client.pool_manager.clear()
+            try:
+                self._api_client.rest_client.pool_manager.clear()
+            except:
+                pass
+        
+        # 清理临时文件
+        if hasattr(self, '_temp_files'):
+            for temp_file in self._temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.unlink(temp_file)
+                except Exception as e:
+                    print(f"清理临时文件失败 {temp_file}: {e}")
 

@@ -103,7 +103,9 @@ class K8sService:
             )
             
             # 尝试连接
-            if k8s_client.connect():
+            success, error_msg = k8s_client.connect()
+            
+            if success:
                 cluster.status = "connected"
                 cluster.error_message = None
                 
@@ -121,11 +123,13 @@ class K8sService:
                 k8s_client.close()
             else:
                 cluster.status = "disconnected"
-                cluster.error_message = "连接失败"
+                cluster.error_message = error_msg or "连接失败"
+                print(f"集群 {cluster.cluster_name} 连接失败: {cluster.error_message}")
             
         except Exception as e:
             cluster.status = "error"
-            cluster.error_message = str(e)
+            cluster.error_message = f"状态检测异常: {str(e)}"
+            print(f"集群 {cluster.cluster_name} 状态检测异常: {str(e)}")
         
         cluster.last_check_time = datetime.utcnow()
         db.commit()
@@ -133,11 +137,16 @@ class K8sService:
         return cluster
     
     @staticmethod
-    def sync_cluster_resources(db: Session, cluster_id: int) -> bool:
-        """同步集群资源信息"""
+    def sync_cluster_resources(db: Session, cluster_id: int) -> tuple[bool, Optional[str]]:
+        """
+        同步集群资源信息
+        
+        Returns:
+            (成功/失败, 错误信息)
+        """
         cluster = K8sService.get_cluster(db, cluster_id)
-        if not cluster or cluster.status != "connected":
-            return False
+        if not cluster:
+            return False, "集群不存在"
         
         try:
             k8s_client = K8sClient(
@@ -150,10 +159,23 @@ class K8sService:
                 client_key=cluster.client_key
             )
             
-            if not k8s_client.connect():
-                return False
+            # 尝试连接
+            success, error_msg = k8s_client.connect()
+            if not success:
+                # 更新集群状态
+                cluster.status = "disconnected"
+                cluster.error_message = error_msg
+                cluster.last_check_time = datetime.utcnow()
+                db.commit()
+                return False, error_msg
+            
+            # 连接成功，更新状态
+            cluster.status = "connected"
+            cluster.error_message = None
+            cluster.last_check_time = datetime.utcnow()
             
             # 同步节点
+            print(f"正在同步集群 {cluster.cluster_name} 的节点信息...")
             nodes = k8s_client.list_nodes()
             db.query(K8sNode).filter(K8sNode.cluster_id == cluster_id).delete()
             
@@ -162,6 +184,7 @@ class K8sService:
                 db.add(db_node)
             
             # 同步命名空间
+            print(f"正在同步集群 {cluster.cluster_name} 的命名空间信息...")
             namespaces = k8s_client.list_namespaces()
             db.query(K8sNamespace).filter(K8sNamespace.cluster_id == cluster_id).delete()
             
@@ -170,6 +193,7 @@ class K8sService:
                 db.add(db_ns)
             
             # 同步Pods（仅保存最近的数据，避免数据量过大）
+            print(f"正在同步集群 {cluster.cluster_name} 的Pod信息...")
             pods = k8s_client.list_pods()
             db.query(K8sPod).filter(K8sPod.cluster_id == cluster_id).delete()
             
@@ -177,20 +201,28 @@ class K8sService:
                 db_pod = K8sPod(cluster_id=cluster_id, **pod_data)
                 db.add(db_pod)
             
-            db.commit()
-            k8s_client.close()
+            # 获取版本信息
+            version = k8s_client.get_version()
+            if version:
+                cluster.version = version
             
             # 更新集群统计
             cluster.node_count = len(nodes)
             cluster.namespace_count = len(namespaces)
             cluster.pod_count = len(pods)
-            db.commit()
             
-            return True
+            db.commit()
+            k8s_client.close()
+            
+            print(f"集群 {cluster.cluster_name} 同步完成: {len(nodes)}个节点, {len(namespaces)}个命名空间, {len(pods)}个Pod")
+            return True, None
             
         except Exception as e:
-            print(f"同步集群资源失败: {str(e)}")
-            return False
+            error_msg = f"同步集群资源失败: {str(e)}"
+            print(error_msg)
+            cluster.error_message = error_msg
+            db.commit()
+            return False, error_msg
     
     @staticmethod
     def get_cluster_stats(db: Session) -> K8sClusterStats:
