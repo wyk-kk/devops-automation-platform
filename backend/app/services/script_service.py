@@ -97,12 +97,37 @@ class ScriptService:
             return execution
         
         try:
+            # 根据脚本类型确定文件后缀和执行命令
+            script_type = script.script_type or 'shell'
+            
+            # 文件后缀映射
+            suffix_map = {
+                'shell': '.sh',
+                'bash': '.sh',
+                'python': '.py',
+                'python3': '.py',
+                'perl': '.pl',
+                'ruby': '.rb'
+            }
+            suffix = suffix_map.get(script_type, '.sh')
+            
+            # 执行命令映射
+            command_map = {
+                'shell': 'bash',
+                'bash': 'bash',
+                'python': 'python3',
+                'python3': 'python3',
+                'perl': 'perl',
+                'ruby': 'ruby'
+            }
+            interpreter = command_map.get(script_type, 'bash')
+            
             # 将脚本上传到远程服务器
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.sh', delete=False) as f:
+            with tempfile.NamedTemporaryFile(mode='w', suffix=suffix, delete=False) as f:
                 f.write(script.content)
                 local_path = f.name
             
-            remote_path = f"/tmp/script_{execution.id}.sh"
+            remote_path = f"/tmp/script_{execution.id}{suffix}"
             
             if not ssh.upload_file(local_path, remote_path):
                 execution.status = "failed"
@@ -111,8 +136,9 @@ class ScriptService:
                 db.commit()
                 return execution
             
-            # 执行脚本
-            stdout, stderr, exit_code = ssh.execute_command(f"bash {remote_path}")
+            # 根据脚本类型执行
+            print(f"📝 执行{script_type}脚本: {interpreter} {remote_path}")
+            stdout, stderr, exit_code = ssh.execute_command(f"{interpreter} {remote_path}")
             
             # 清理远程脚本文件
             ssh.execute_command(f"rm {remote_path}")
