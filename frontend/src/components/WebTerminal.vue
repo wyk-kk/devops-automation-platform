@@ -15,54 +15,6 @@
       </div>
     </div>
     
-    <!-- 快捷命令面板 -->
-    <div class="quick-commands" v-if="showQuickCommands">
-      <div class="commands-header">
-        <span>快捷命令</span>
-        <el-button @click="showQuickCommands = false" link size="small" :icon="Close">
-          收起
-        </el-button>
-      </div>
-      <div class="commands-grid">
-        <el-button 
-          v-for="cmd in quickCommands" 
-          :key="cmd.command"
-          size="small"
-          @click="executeQuickCommand(cmd.command)"
-          class="command-btn"
-        >
-          <el-icon><component :is="cmd.icon" /></el-icon>
-          {{ cmd.label }}
-        </el-button>
-      </div>
-      <el-input
-        v-model="customCommand"
-        placeholder="输入自定义命令，回车执行"
-        size="small"
-        @keyup.enter="executeQuickCommand(customCommand)"
-        class="custom-command-input"
-      >
-        <template #prepend>$</template>
-        <template #append>
-          <el-button @click="executeQuickCommand(customCommand)" :icon="Position">
-            执行
-          </el-button>
-        </template>
-      </el-input>
-    </div>
-    
-    <!-- 切换快捷命令按钮 -->
-    <div class="toggle-commands">
-      <el-button 
-        @click="showQuickCommands = !showQuickCommands" 
-        size="small" 
-        type="primary"
-        :icon="showQuickCommands ? Hide : View"
-      >
-        {{ showQuickCommands ? '隐藏' : '显示' }}快捷命令
-      </el-button>
-    </div>
-    
     <div ref="terminalContainer" class="terminal-container"></div>
   </div>
 </template>
@@ -72,9 +24,9 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { 
-  Delete, Close, Position, View, Hide, 
-  SuccessFilled, CircleCloseFilled,
-  Files, FolderOpened, Monitor, DocumentCopy, Switch
+  Delete,
+  SuccessFilled, 
+  CircleCloseFilled
 } from '@element-plus/icons-vue'
 import 'xterm/css/xterm.css'
 
@@ -96,20 +48,6 @@ let terminal = null
 let fitAddon = null
 let websocket = null
 const isConnected = ref(false)
-const showQuickCommands = ref(true)
-const customCommand = ref('')
-
-// 快捷命令配置
-const quickCommands = ref([
-  { label: '列出文件', command: 'ls -lah', icon: Files },
-  { label: '当前目录', command: 'pwd', icon: FolderOpened },
-  { label: '磁盘使用', command: 'df -h', icon: DocumentCopy },
-  { label: '内存使用', command: 'free -h', icon: Monitor },
-  { label: '系统信息', command: 'uname -a', icon: Monitor },
-  { label: 'Top进程', command: 'top -bn1 | head -20', icon: Switch },
-  { label: '网络连接', command: 'netstat -tunlp | head -20', icon: Switch },
-  { label: '查看用户', command: 'whoami', icon: Monitor }
-])
 
 onMounted(() => {
   initTerminal()
@@ -351,90 +289,6 @@ defineExpose({
 
 .terminal-container :deep(.xterm-viewport) {
   overflow-y: auto;
-}
-
-/* 快捷命令面板样式 */
-.quick-commands {
-  background: #252526;
-  border-bottom: 1px solid #3e3e42;
-  padding: 12px 15px;
-}
-
-.commands-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  color: #cccccc;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.commands-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.command-btn {
-  background: #3c3c3c;
-  border-color: #3e3e42;
-  color: #cccccc;
-  font-size: 12px;
-  height: 32px;
-}
-
-.command-btn:hover {
-  background: #4c4c4c;
-  border-color: #007acc;
-  color: #ffffff;
-}
-
-.custom-command-input {
-  width: 100%;
-}
-
-.custom-command-input :deep(.el-input-group__prepend) {
-  background: #3c3c3c;
-  border-color: #3e3e42;
-  color: #4ec9b0;
-  font-weight: bold;
-}
-
-.custom-command-input :deep(.el-input__inner) {
-  background: #1e1e1e;
-  border-color: #3e3e42;
-  color: #cccccc;
-}
-
-.custom-command-input :deep(.el-input-group__append) {
-  background: #3c3c3c;
-  border-color: #3e3e42;
-  padding: 0;
-}
-
-.custom-command-input :deep(.el-input-group__append .el-button) {
-  background: transparent;
-  border: none;
-  color: #007acc;
-}
-
-.custom-command-input :deep(.el-input-group__append .el-button:hover) {
-  background: #007acc;
-  color: #ffffff;
-}
-
-.toggle-commands {
-  position: absolute;
-  right: 15px;
-  top: 50px;
-  z-index: 10;
-}
-
-.toggle-commands .el-button {
-  font-size: 12px;
-  padding: 5px 12px;
 }
 </style>
 

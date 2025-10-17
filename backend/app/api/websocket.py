@@ -61,18 +61,23 @@ async def websocket_ssh_endpoint(
             ssh_key=server.ssh_key
         )
         
-        # 设置输出回调 - 使用同步方式
+        # 获取当前事件循环
         import asyncio
+        loop = asyncio.get_event_loop()
         
+        # 设置输出回调 - 使用线程安全的方式
         def output_callback(data: str):
             try:
-                # 创建异步任务发送数据
-                asyncio.create_task(websocket.send_json({
-                    "type": "output",
-                    "data": data
-                }))
-            except:
-                pass
+                # 使用call_soon_threadsafe确保线程安全
+                asyncio.run_coroutine_threadsafe(
+                    websocket.send_json({
+                        "type": "output",
+                        "data": data
+                    }),
+                    loop
+                )
+            except Exception as e:
+                print(f"发送SSH输出失败: {e}")
         
         ssh_session.output_callback = output_callback
         
