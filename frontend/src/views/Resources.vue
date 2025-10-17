@@ -74,7 +74,7 @@
         <el-tab-pane label="服务器" name="servers">
           <el-table :data="servers" v-loading="loading" stripe>
             <el-table-column prop="name" label="名称" width="150" />
-            <el-table-column prop="ip" label="IP地址" width="150" />
+            <el-table-column prop="host" label="IP地址" width="150" />
             <el-table-column prop="port" label="端口" width="100" />
             <el-table-column label="状态" width="100">
               <template #default="{ row }">
@@ -97,10 +97,16 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
+            <el-table-column label="操作" width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="viewServerDetail(row)">
                   详情
+                </el-button>
+                <el-button link type="success" size="small" @click="showSSHDialog(row)">
+                  SSH
+                </el-button>
+                <el-button link type="warning" size="small" @click="testServerConnection(row)">
+                  测试
                 </el-button>
                 <el-button link type="danger" size="small" @click="deleteResource('server', row)">
                   删除
@@ -156,7 +162,7 @@
           <el-input v-model="serverForm.name" placeholder="输入服务器名称" />
         </el-form-item>
         <el-form-item label="IP地址">
-          <el-input v-model="serverForm.ip" placeholder="192.168.1.100" />
+          <el-input v-model="serverForm.host" placeholder="192.168.1.100" />
         </el-form-item>
         <el-form-item label="SSH端口">
           <el-input-number v-model="serverForm.port" :min="1" :max="65535" />
@@ -398,13 +404,80 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- SSH远程执行对话框 -->
+    <el-dialog 
+      v-model="sshDialogVisible" 
+      :title="`SSH远程执行 - ${currentServer?.name || ''}`" 
+      width="800px"
+    >
+      <div v-if="currentServer">
+        <el-alert 
+          type="info" 
+          :closable="false" 
+          show-icon
+          style="margin-bottom: 15px;"
+        >
+          <template #title>
+            连接到: {{ currentServer.host }}:{{ currentServer.port }} ({{ currentServer.username }})
+          </template>
+        </el-alert>
+
+        <el-form label-width="80px">
+          <el-form-item label="执行命令">
+            <el-input
+              v-model="sshCommand"
+              type="textarea"
+              :rows="3"
+              placeholder="输入要执行的命令，例如: ls -la"
+              @keydown.enter.ctrl="executeSSHCommand"
+            />
+            <div style="margin-top: 5px; font-size: 12px; color: #909399;">
+              提示: Ctrl+Enter 快速执行
+            </div>
+          </el-form-item>
+        </el-form>
+
+        <div v-if="sshExecuting" style="text-align: center; padding: 20px;">
+          <el-icon class="is-loading" style="font-size: 24px;"><Loading /></el-icon>
+          <div style="margin-top: 10px;">执行中...</div>
+        </div>
+
+        <div v-if="sshResult" style="margin-top: 20px;">
+          <div style="margin-bottom: 10px; font-weight: bold;">
+            执行结果 
+            <el-tag :type="sshResult.success ? 'success' : 'danger'" size="small">
+              退出码: {{ sshResult.exit_code }}
+            </el-tag>
+          </div>
+
+          <div v-if="sshResult.stdout" style="margin-bottom: 15px;">
+            <div style="margin-bottom: 5px; color: #67C23A;">标准输出 (stdout):</div>
+            <pre style="background: #f5f7fa; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px;">{{ sshResult.stdout }}</pre>
+          </div>
+
+          <div v-if="sshResult.stderr" style="margin-bottom: 15px;">
+            <div style="margin-bottom: 5px; color: #F56C6C;">标准错误 (stderr):</div>
+            <pre style="background: #fef0f0; padding: 10px; border-radius: 4px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">{{ sshResult.stderr }}</pre>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="sshDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="executeSSHCommand" :loading="sshExecuting">
+          执行命令
+        </el-button>
+        <el-button @click="clearSSHResult">清空结果</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Grid, Box } from '@element-plus/icons-vue'
+import { Monitor, Grid, Box, Loading } from '@element-plus/icons-vue'
 import api from '@/api'
 
 const loading = ref(false)
@@ -418,7 +491,7 @@ const k8sDialogVisible = ref(false)
 
 const serverForm = ref({
   name: '',
-  ip: '',
+  host: '',  // 修复：改为host以匹配后端
   port: 22,
   username: 'root',
   password: ''
@@ -540,6 +613,66 @@ const deleteResource = async (type, resource) => {
 
 const viewServerDetail = (server) => {
   ElMessage.info('查看服务器详情（功能开发中）')
+}
+
+// SSH远程执行相关
+const sshDialogVisible = ref(false)
+const currentServer = ref(null)
+const sshCommand = ref('')
+const sshResult = ref(null)
+const sshExecuting = ref(false)
+
+const showSSHDialog = (server) => {
+  currentServer.value = server
+  sshDialogVisible.value = true
+  sshCommand.value = ''
+  sshResult.value = null
+}
+
+const executeSSHCommand = async () => {
+  if (!sshCommand.value.trim()) {
+    ElMessage.warning('请输入要执行的命令')
+    return
+  }
+  
+  sshExecuting.value = true
+  sshResult.value = null
+  
+  try {
+    const response = await api.post(`/servers/${currentServer.value.id}/execute`, {
+      command: sshCommand.value
+    })
+    sshResult.value = response.data
+    
+    if (response.data.success) {
+      ElMessage.success('命令执行成功')
+    } else {
+      ElMessage.warning('命令执行完成，但返回非零退出码')
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.detail || '执行命令失败')
+  } finally {
+    sshExecuting.value = false
+  }
+}
+
+const clearSSHResult = () => {
+  sshResult.value = null
+  sshCommand.value = ''
+}
+
+const testServerConnection = async (server) => {
+  try {
+    const response = await api.post(`/servers/${server.id}/test`)
+    if (response.data.success) {
+      ElMessage.success('连接测试成功')
+      fetchServers() // 刷新列表以更新状态
+    } else {
+      ElMessage.error('连接测试失败：' + response.data.message)
+    }
+  } catch (error) {
+    ElMessage.error('连接测试失败')
+  }
 }
 
 // K8s集群详情相关

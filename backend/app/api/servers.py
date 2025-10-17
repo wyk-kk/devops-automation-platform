@@ -107,3 +107,48 @@ def get_server_status(
         raise HTTPException(status_code=404, detail="Server not found or offline")
     return status
 
+
+@router.post("/{server_id}/execute")
+def execute_command(
+    server_id: int,
+    command: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    远程执行命令
+    
+    参数:
+        command: {"command": "ls -la"}
+    """
+    from app.utils.ssh_client import SSHClient
+    
+    server = ServerService.get_server(db, server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    
+    if not command.get('command'):
+        raise HTTPException(status_code=400, detail="Command is required")
+    
+    ssh = SSHClient(
+        host=server.host,
+        port=server.port,
+        username=server.username,
+        password=server.password,
+        ssh_key=server.ssh_key
+    )
+    
+    if not ssh.connect():
+        raise HTTPException(status_code=500, detail="Failed to connect to server")
+    
+    try:
+        stdout, stderr, exit_code = ssh.execute_command(command['command'])
+        return {
+            "success": exit_code == 0,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code
+        }
+    finally:
+        ssh.close()
+
