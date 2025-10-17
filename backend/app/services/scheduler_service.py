@@ -1,5 +1,6 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session
 from datetime import datetime
 from app.core.database import SessionLocal
@@ -13,6 +14,9 @@ class SchedulerService:
     def __init__(self):
         self.scheduler = BackgroundScheduler()
         self.scheduler.start()
+        
+        # 添加系统级监控任务
+        self._add_system_monitoring_job()
     
     def add_task(self, task_id: int, cron_expression: str):
         """添加定时任务"""
@@ -98,6 +102,62 @@ class SchedulerService:
         finally:
             db.close()
     
+    def _add_system_monitoring_job(self):
+        """添加系统级的监控任务"""
+        # 每分钟检查一次所有服务器的资源使用情况并触发告警
+        self.scheduler.add_job(
+            func=self._monitor_servers,
+            trigger=IntervalTrigger(minutes=1),
+            id='system_monitoring',
+            name='System Resource Monitoring',
+            replace_existing=True
+        )
+        print("✅ System monitoring job added: Check servers every 1 minute")
+    
+    def _monitor_servers(self):
+        """监控所有服务器的资源使用情况并触发告警"""
+        from app.models.server import Server
+        from app.services.server_service import ServerService
+        from app.services.alert_service import AlertService
+        
+        db = SessionLocal()
+        
+        try:
+            # 获取所有在线服务器
+            servers = db.query(Server).filter(Server.status == 'online').all()
+            
+            for server in servers:
+                try:
+                    # 获取服务器实时状态
+                    status = ServerService.get_server_status(db, server.id)
+                    
+                    if status and status.status == 'online':
+                        # 构建指标字典
+                        metrics = {
+                            'cpu': status.cpu_percent or 0,
+                            'memory': status.memory_percent or 0,
+                            'disk': status.disk_percent or 0
+                        }
+                        
+                        # 检查告警规则并触发告警
+                        alerts = AlertService.check_server_alerts_with_rules(
+                            db, server.id, metrics
+                        )
+                        
+                        if alerts:
+                            print(f"⚠️  Triggered {len(alerts)} alert(s) for server {server.name} (ID: {server.id})")
+                            for alert in alerts:
+                                print(f"   - [{alert.level.upper()}] {alert.title}: {alert.message}")
+                        
+                except Exception as e:
+                    print(f"❌ Failed to monitor server {server.id}: {str(e)}")
+                    continue
+        
+        except Exception as e:
+            print(f"❌ Monitoring job error: {str(e)}")
+        finally:
+            db.close()
+    
     def load_tasks(self):
         """从数据库加载所有启用的任务"""
         db = SessionLocal()
@@ -106,7 +166,7 @@ class SchedulerService:
             tasks = db.query(Task).filter(Task.is_enabled == True).all()
             for task in tasks:
                 self.add_task(task.id, task.cron_expression)
-            print(f"Loaded {len(tasks)} scheduled tasks")
+            print(f"✅ Loaded {len(tasks)} scheduled tasks")
         finally:
             db.close()
     
