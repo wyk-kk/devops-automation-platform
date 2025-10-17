@@ -591,7 +591,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Monitor, Grid, Box, Loading } from '@element-plus/icons-vue'
 import api from '@/api'
@@ -629,9 +629,30 @@ const totalNodes = computed(() => {
   return serverNodes + k8sNodes
 })
 
+// 定时刷新资源使用率
+let refreshInterval = null
+
 onMounted(() => {
   fetchServers()
   fetchK8sClusters()
+  
+  // 每30秒自动刷新一次服务器资源使用率
+  refreshInterval = setInterval(() => {
+    if (activeTab.value === 'servers' && servers.value.length > 0) {
+      servers.value.forEach(server => {
+        if (server.status === 'online') {
+          fetchServerStatus(server.id)
+        }
+      })
+    }
+  }, 30000) // 30秒刷新一次
+})
+
+onBeforeUnmount(() => {
+  // 清除定时器
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
+  }
 })
 
 const fetchServers = async () => {
@@ -639,10 +660,33 @@ const fetchServers = async () => {
   try {
     const response = await api.get('/servers')
     servers.value = response.data
+    
+    // 异步获取每个服务器的实时资源使用率
+    servers.value.forEach(server => {
+      fetchServerStatus(server.id)
+    })
   } catch (error) {
     ElMessage.error('获取服务器列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+// 获取单个服务器的实时状态
+const fetchServerStatus = async (serverId) => {
+  try {
+    const response = await api.get(`/servers/${serverId}/status`)
+    // 更新对应服务器的资源使用率
+    const server = servers.value.find(s => s.id === serverId)
+    if (server && response.data) {
+      server.cpu_percent = response.data.cpu_percent || 0
+      server.memory_percent = response.data.memory_percent || 0
+      server.disk_percent = response.data.disk_percent || 0
+      server.uptime = response.data.uptime || 'unknown'
+    }
+  } catch (error) {
+    // 静默失败，不影响列表显示
+    console.error(`Failed to fetch status for server ${serverId}:`, error)
   }
 }
 
