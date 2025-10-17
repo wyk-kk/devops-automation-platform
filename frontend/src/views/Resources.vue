@@ -97,16 +97,13 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="350" fixed="right">
+            <el-table-column label="操作" width="280" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="viewServerDetail(row)">
                   详情
                 </el-button>
                 <el-button link type="success" size="small" @click="showWebTerminal(row)">
-                  终端
-                </el-button>
-                <el-button link type="primary" size="small" @click="showSSHDialog(row)">
-                  命令
+                  <el-icon><Monitor /></el-icon> 终端
                 </el-button>
                 <el-button link type="warning" size="small" @click="testServerConnection(row)">
                   测试
@@ -574,73 +571,6 @@
       </template>
     </el-dialog>
 
-    <!-- SSH远程执行对话框 -->
-    <el-dialog 
-      v-model="sshDialogVisible" 
-      :title="`SSH远程执行 - ${currentServer?.name || ''}`" 
-      width="800px"
-    >
-      <div v-if="currentServer">
-        <el-alert 
-          type="info" 
-          :closable="false" 
-          show-icon
-          style="margin-bottom: 15px;"
-        >
-          <template #title>
-            连接到: {{ currentServer.host }}:{{ currentServer.port }} ({{ currentServer.username }})
-          </template>
-        </el-alert>
-
-        <el-form label-width="80px">
-          <el-form-item label="执行命令">
-            <el-input
-              v-model="sshCommand"
-              type="textarea"
-              :rows="3"
-              placeholder="输入要执行的命令，例如: ls -la"
-              @keydown.enter.ctrl="executeSSHCommand"
-            />
-            <div style="margin-top: 5px; font-size: 12px; color: #909399;">
-              提示: Ctrl+Enter 快速执行
-            </div>
-          </el-form-item>
-        </el-form>
-
-        <div v-if="sshExecuting" style="text-align: center; padding: 20px;">
-          <el-icon class="is-loading" style="font-size: 24px;"><Loading /></el-icon>
-          <div style="margin-top: 10px;">执行中...</div>
-        </div>
-
-        <div v-if="sshResult" style="margin-top: 20px;">
-          <div style="margin-bottom: 10px; font-weight: bold;">
-            执行结果 
-            <el-tag :type="sshResult.success ? 'success' : 'danger'" size="small">
-              退出码: {{ sshResult.exit_code }}
-            </el-tag>
-          </div>
-
-          <div v-if="sshResult.stdout" style="margin-bottom: 15px;">
-            <div style="margin-bottom: 5px; color: #67C23A;">标准输出 (stdout):</div>
-            <pre style="background: #f5f7fa; padding: 10px; border-radius: 4px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px;">{{ sshResult.stdout }}</pre>
-          </div>
-
-          <div v-if="sshResult.stderr" style="margin-bottom: 15px;">
-            <div style="margin-bottom: 5px; color: #F56C6C;">标准错误 (stderr):</div>
-            <pre style="background: #fef0f0; padding: 10px; border-radius: 4px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px;">{{ sshResult.stderr }}</pre>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <el-button @click="sshDialogVisible = false">关闭</el-button>
-        <el-button type="primary" @click="executeSSHCommand" :loading="sshExecuting">
-          执行命令
-        </el-button>
-        <el-button @click="clearSSHResult">清空结果</el-button>
-      </template>
-    </el-dialog>
-
     <!-- Web Terminal对话框 -->
     <el-dialog 
       v-model="terminalDialogVisible" 
@@ -846,52 +776,6 @@ const showWebTerminal = (server) => {
   }
   terminalServer.value = server
   terminalDialogVisible.value = true
-}
-
-// SSH远程执行相关
-const sshDialogVisible = ref(false)
-const currentServer = ref(null)
-const sshCommand = ref('')
-const sshResult = ref(null)
-const sshExecuting = ref(false)
-
-const showSSHDialog = (server) => {
-  currentServer.value = server
-  sshDialogVisible.value = true
-  sshCommand.value = ''
-  sshResult.value = null
-}
-
-const executeSSHCommand = async () => {
-  if (!sshCommand.value.trim()) {
-    ElMessage.warning('请输入要执行的命令')
-    return
-  }
-  
-  sshExecuting.value = true
-  sshResult.value = null
-  
-  try {
-    const response = await api.post(`/servers/${currentServer.value.id}/execute`, {
-      command: sshCommand.value
-    })
-    sshResult.value = response.data
-    
-    if (response.data.success) {
-      ElMessage.success('命令执行成功')
-    } else {
-      ElMessage.warning('命令执行完成，但返回非零退出码')
-    }
-  } catch (error) {
-    ElMessage.error(error.response?.data?.detail || '执行命令失败')
-  } finally {
-    sshExecuting.value = false
-  }
-}
-
-const clearSSHResult = () => {
-  sshResult.value = null
-  sshCommand.value = ''
 }
 
 const testServerConnection = async (server) => {

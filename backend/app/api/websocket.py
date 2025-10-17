@@ -61,20 +61,20 @@ async def websocket_ssh_endpoint(
             ssh_key=server.ssh_key
         )
         
-        # 设置输出回调
-        async def output_callback(data: str):
+        # 设置输出回调 - 使用同步方式
+        import asyncio
+        
+        def output_callback(data: str):
             try:
-                await websocket.send_json({
+                # 创建异步任务发送数据
+                asyncio.create_task(websocket.send_json({
                     "type": "output",
                     "data": data
-                })
+                }))
             except:
                 pass
         
-        ssh_session.output_callback = lambda data: websocket.send_json({
-            "type": "output",
-            "data": data
-        })
+        ssh_session.output_callback = output_callback
         
         # 连接SSH
         success, error_msg = ssh_session.connect()
