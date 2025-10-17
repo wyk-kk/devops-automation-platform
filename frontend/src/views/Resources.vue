@@ -97,13 +97,16 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="300" fixed="right">
+            <el-table-column label="操作" width="350" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" size="small" @click="viewServerDetail(row)">
                   详情
                 </el-button>
-                <el-button link type="success" size="small" @click="showSSHDialog(row)">
-                  SSH
+                <el-button link type="success" size="small" @click="showWebTerminal(row)">
+                  终端
+                </el-button>
+                <el-button link type="primary" size="small" @click="showSSHDialog(row)">
+                  命令
                 </el-button>
                 <el-button link type="warning" size="small" @click="testServerConnection(row)">
                   测试
@@ -405,6 +408,172 @@
       </template>
     </el-dialog>
 
+    <!-- 服务器详情对话框 -->
+    <el-dialog 
+      v-model="serverDetailVisible" 
+      :title="`服务器详情 - ${currentDetailServer?.name || ''}`" 
+      width="900px"
+      destroy-on-close
+    >
+      <div v-if="currentDetailServer" v-loading="serverDetailLoading">
+        <!-- 基本信息卡片 -->
+        <el-card class="detail-info-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span>基本信息</span>
+              <el-tag :type="currentDetailServer.status === 'online' ? 'success' : 'danger'">
+                {{ currentDetailServer.status === 'online' ? '在线' : '离线' }}
+              </el-tag>
+            </div>
+          </template>
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <div class="info-item">
+                <label>服务器名称:</label>
+                <span>{{ currentDetailServer.name }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8">
+              <div class="info-item">
+                <label>IP地址:</label>
+                <span>{{ currentDetailServer.host }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8">
+              <div class="info-item">
+                <label>SSH端口:</label>
+                <span>{{ currentDetailServer.port }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>用户名:</label>
+                <span>{{ currentDetailServer.username }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>操作系统:</label>
+                <span>{{ currentDetailServer.os_type || '-' }} {{ currentDetailServer.os_version || '' }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>CPU核心数:</label>
+                <span>{{ currentDetailServer.cpu_cores || '-' }}</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>总内存:</label>
+                <span>{{ currentDetailServer.memory_total || '-' }} MB</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>总磁盘:</label>
+                <span>{{ currentDetailServer.disk_total || '-' }} GB</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>创建时间:</label>
+                <span>{{ formatDateTime(currentDetailServer.created_at) }}</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>最后检查:</label>
+                <span>{{ formatDateTime(currentDetailServer.last_check_time) }}</span>
+              </div>
+            </el-col>
+          </el-row>
+        </el-card>
+
+        <!-- 实时资源使用情况 -->
+        <el-card v-if="serverDetailInfo" class="detail-info-card" shadow="never" style="margin-top: 20px;">
+          <template #header>
+            <div class="card-header">
+              <span>实时资源使用</span>
+              <el-tag type="info" size="small">{{ formatDateTime(serverDetailInfo.check_time) }}</el-tag>
+            </div>
+          </template>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <div class="resource-chart">
+                <div class="resource-label">CPU使用率</div>
+                <el-progress 
+                  :percentage="serverDetailInfo.cpu_percent || 0" 
+                  :color="getProgressColor(serverDetailInfo.cpu_percent)"
+                  :stroke-width="20"
+                >
+                  <span style="font-size: 14px;">{{ (serverDetailInfo.cpu_percent || 0).toFixed(2) }}%</span>
+                </el-progress>
+              </div>
+            </el-col>
+            <el-col :span="12">
+              <div class="resource-chart">
+                <div class="resource-label">内存使用率</div>
+                <el-progress 
+                  :percentage="serverDetailInfo.memory_percent || 0" 
+                  :color="getProgressColor(serverDetailInfo.memory_percent)"
+                  :stroke-width="20"
+                >
+                  <span style="font-size: 14px;">{{ (serverDetailInfo.memory_percent || 0).toFixed(2) }}%</span>
+                </el-progress>
+                <div class="resource-detail">
+                  {{ serverDetailInfo.memory_used || 0 }} MB / {{ serverDetailInfo.memory_total || 0 }} MB
+                </div>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 20px;">
+              <div class="resource-chart">
+                <div class="resource-label">磁盘使用率</div>
+                <el-progress 
+                  :percentage="serverDetailInfo.disk_percent || 0" 
+                  :color="getProgressColor(serverDetailInfo.disk_percent)"
+                  :stroke-width="20"
+                >
+                  <span style="font-size: 14px;">{{ (serverDetailInfo.disk_percent || 0).toFixed(2) }}%</span>
+                </el-progress>
+                <div class="resource-detail">
+                  {{ serverDetailInfo.disk_used || 0 }} GB / {{ serverDetailInfo.disk_total || 0 }} GB
+                </div>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 20px;">
+              <div class="resource-chart">
+                <div class="resource-label">系统运行时间</div>
+                <div style="padding: 10px; text-align: center; font-size: 16px; color: #409EFF;">
+                  {{ serverDetailInfo.uptime || '-' }}
+                </div>
+              </div>
+            </el-col>
+          </el-row>
+        </el-card>
+
+        <!-- 离线提示 -->
+        <el-alert 
+          v-if="currentDetailServer.status !== 'online'" 
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 20px;"
+        >
+          <template #title>
+            服务器离线，无法获取实时资源使用情况
+          </template>
+        </el-alert>
+      </div>
+
+      <template #footer>
+        <el-button @click="serverDetailVisible = false">关闭</el-button>
+        <el-button type="primary" @click="refreshServerInfo" :loading="serverDetailLoading">
+          刷新信息
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- SSH远程执行对话框 -->
     <el-dialog 
       v-model="sshDialogVisible" 
@@ -471,6 +640,23 @@
         <el-button @click="clearSSHResult">清空结果</el-button>
       </template>
     </el-dialog>
+
+    <!-- Web Terminal对话框 -->
+    <el-dialog 
+      v-model="terminalDialogVisible" 
+      :title="`Web Terminal - ${terminalServer?.name || ''}`" 
+      width="1000px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <div style="height: 500px;">
+        <WebTerminal 
+          v-if="terminalDialogVisible && terminalServer"
+          :server-id="terminalServer.id"
+          :title="`${terminalServer.host}:${terminalServer.port}`"
+        />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -479,6 +665,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Monitor, Grid, Box, Loading } from '@element-plus/icons-vue'
 import api from '@/api'
+import WebTerminal from '@/components/WebTerminal.vue'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -611,8 +798,54 @@ const deleteResource = async (type, resource) => {
   }
 }
 
-const viewServerDetail = (server) => {
-  ElMessage.info('查看服务器详情（功能开发中）')
+// 服务器详情相关
+const serverDetailVisible = ref(false)
+const currentDetailServer = ref(null)
+const serverDetailInfo = ref(null)
+const serverDetailLoading = ref(false)
+
+const viewServerDetail = async (server) => {
+  currentDetailServer.value = server
+  serverDetailVisible.value = true
+  await loadServerDetail(server.id)
+}
+
+const loadServerDetail = async (serverId) => {
+  serverDetailLoading.value = true
+  try {
+    const response = await api.get(`/servers/${serverId}/status`)
+    serverDetailInfo.value = response.data
+  } catch (error) {
+    ElMessage.error('加载服务器详情失败')
+  } finally {
+    serverDetailLoading.value = false
+  }
+}
+
+const refreshServerInfo = async () => {
+  if (!currentDetailServer.value) return
+  
+  try {
+    await api.post(`/servers/${currentDetailServer.value.id}/refresh`)
+    ElMessage.success('服务器信息已刷新')
+    await loadServerDetail(currentDetailServer.value.id)
+    fetchServers() // 刷新列表
+  } catch (error) {
+    ElMessage.error('刷新失败')
+  }
+}
+
+// Web Terminal相关
+const terminalDialogVisible = ref(false)
+const terminalServer = ref(null)
+
+const showWebTerminal = (server) => {
+  if (server.status !== 'online') {
+    ElMessage.warning('服务器离线，无法打开终端')
+    return
+  }
+  terminalServer.value = server
+  terminalDialogVisible.value = true
 }
 
 // SSH远程执行相关
@@ -924,6 +1157,24 @@ const formatDateTime = (dateStr) => {
   font-size: 20px;
   font-weight: bold;
   color: #409EFF;
+}
+
+/* 资源图表样式 */
+.resource-chart {
+  padding: 10px 0;
+}
+
+.resource-label {
+  margin-bottom: 10px;
+  font-weight: 500;
+  color: #606266;
+}
+
+.resource-detail {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #909399;
 }
 </style>
 
