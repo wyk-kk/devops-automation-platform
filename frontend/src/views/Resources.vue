@@ -220,6 +220,184 @@
         <el-button type="primary" @click="createK8sCluster" :loading="saving">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- K8s集群详情对话框 -->
+    <el-dialog 
+      v-model="k8sDetailVisible" 
+      :title="`集群详情 - ${currentCluster?.cluster_name || ''}`" 
+      width="1200px"
+      destroy-on-close
+    >
+      <div v-if="currentCluster" v-loading="detailLoading">
+        <!-- 集群基本信息卡片 -->
+        <el-card class="detail-info-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span>基本信息</span>
+              <el-tag :type="getK8sStatusType(currentCluster.status)">
+                {{ getK8sStatusText(currentCluster.status) }}
+              </el-tag>
+            </div>
+          </template>
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <div class="info-item">
+                <label>集群名称:</label>
+                <span>{{ currentCluster.cluster_name }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8">
+              <div class="info-item">
+                <label>Kubernetes版本:</label>
+                <span>{{ currentCluster.version || 'N/A' }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8">
+              <div class="info-item">
+                <label>环境:</label>
+                <el-tag size="small">{{ getEnvironmentText(currentCluster.environment) }}</el-tag>
+              </div>
+            </el-col>
+            <el-col :span="24" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>API Server:</label>
+                <span>{{ currentCluster.api_server }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>节点数:</label>
+                <span class="stat-number">{{ currentCluster.node_count || 0 }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>命名空间数:</label>
+                <span class="stat-number">{{ currentCluster.namespace_count || 0 }}</span>
+              </div>
+            </el-col>
+            <el-col :span="8" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>Pod数:</label>
+                <span class="stat-number">{{ currentCluster.pod_count || 0 }}</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>创建时间:</label>
+                <span>{{ formatDateTime(currentCluster.created_at) }}</span>
+              </div>
+            </el-col>
+            <el-col :span="12" style="margin-top: 15px;">
+              <div class="info-item">
+                <label>最后检查:</label>
+                <span>{{ formatDateTime(currentCluster.last_check_time) }}</span>
+              </div>
+            </el-col>
+          </el-row>
+        </el-card>
+
+        <!-- Tab切换查看详细资源 -->
+        <el-tabs v-model="detailTab" style="margin-top: 20px;">
+          <!-- 节点列表 -->
+          <el-tab-pane label="节点列表" name="nodes">
+            <el-table :data="clusterNodes" stripe max-height="400">
+              <el-table-column prop="node_name" label="节点名称" width="180" />
+              <el-table-column prop="node_ip" label="IP地址" width="150" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'Ready' ? 'success' : 'danger'" size="small">
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="角色" width="120">
+                <template #default="{ row }">
+                  <el-tag v-for="role in row.roles" :key="role" size="small" type="info" style="margin-right: 5px;">
+                    {{ role }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="资源容量" width="200">
+                <template #default="{ row }">
+                  <div style="font-size: 12px;">
+                    <div>CPU: {{ row.cpu_capacity }}</div>
+                    <div>内存: {{ row.memory_capacity }}</div>
+                  </div>
+                </template>
+              </el-table-column>
+              <el-table-column prop="os_image" label="操作系统" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="kubelet_version" label="Kubelet版本" width="120" />
+            </el-table>
+          </el-tab-pane>
+
+          <!-- 命名空间列表 -->
+          <el-tab-pane label="命名空间" name="namespaces">
+            <el-table :data="clusterNamespaces" stripe max-height="400">
+              <el-table-column prop="namespace_name" label="命名空间" width="200" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'Active' ? 'success' : 'info'" size="small">
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="标签" min-width="300">
+                <template #default="{ row }">
+                  <el-tag 
+                    v-for="(value, key) in row.labels" 
+                    :key="key" 
+                    size="small" 
+                    style="margin: 2px;"
+                  >
+                    {{ key }}: {{ value }}
+                  </el-tag>
+                  <span v-if="!row.labels || Object.keys(row.labels).length === 0">-</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+
+          <!-- Pod列表 -->
+          <el-tab-pane label="Pod列表" name="pods">
+            <el-table :data="clusterPods" stripe max-height="400">
+              <el-table-column prop="pod_name" label="Pod名称" width="250" show-overflow-tooltip />
+              <el-table-column prop="namespace" label="命名空间" width="150" />
+              <el-table-column label="状态" width="100">
+                <template #default="{ row }">
+                  <el-tag 
+                    :type="getPodStatusType(row.status)" 
+                    size="small"
+                  >
+                    {{ row.status }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="node_name" label="所在节点" width="180" show-overflow-tooltip />
+              <el-table-column prop="pod_ip" label="Pod IP" width="130" />
+              <el-table-column label="容器" width="100">
+                <template #default="{ row }">
+                  {{ row.ready_containers }}/{{ row.total_containers }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="restart_count" label="重启次数" width="100" />
+              <el-table-column label="运行时间" min-width="150">
+                <template #default="{ row }">
+                  {{ formatDateTime(row.start_time) }}
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
+      </div>
+
+      <template #footer>
+        <el-button @click="k8sDetailVisible = false">关闭</el-button>
+        <el-button type="success" @click="loadClusterDetails(currentCluster.id)">
+          刷新数据
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -364,8 +542,42 @@ const viewServerDetail = (server) => {
   ElMessage.info('查看服务器详情（功能开发中）')
 }
 
-const viewK8sDetail = (cluster) => {
-  ElMessage.info('查看K8s集群详情（功能开发中）')
+// K8s集群详情相关
+const k8sDetailVisible = ref(false)
+const currentCluster = ref(null)
+const clusterNodes = ref([])
+const clusterNamespaces = ref([])
+const clusterPods = ref([])
+const detailLoading = ref(false)
+const detailTab = ref('overview')
+
+const viewK8sDetail = async (cluster) => {
+  currentCluster.value = cluster
+  k8sDetailVisible.value = true
+  detailTab.value = 'overview'
+  
+  // 加载详细信息
+  await loadClusterDetails(cluster.id)
+}
+
+const loadClusterDetails = async (clusterId) => {
+  detailLoading.value = true
+  try {
+    // 并行加载节点、命名空间、Pod信息
+    const [nodesRes, nsRes, podsRes] = await Promise.all([
+      api.get(`/k8s/clusters/${clusterId}/nodes`),
+      api.get(`/k8s/clusters/${clusterId}/namespaces`),
+      api.get(`/k8s/clusters/${clusterId}/pods`)
+    ])
+    
+    clusterNodes.value = nodesRes.data
+    clusterNamespaces.value = nsRes.data
+    clusterPods.value = podsRes.data
+  } catch (error) {
+    ElMessage.error('加载集群详情失败')
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 const handleTabClick = () => {
@@ -396,6 +608,60 @@ const getK8sStatusText = (status) => {
     unknown: '未知'
   }
   return texts[status] || status
+}
+
+const getEnvironmentText = (env) => {
+  const texts = {
+    dev: '开发环境',
+    test: '测试环境',
+    staging: '预发环境',
+    prod: '生产环境'
+  }
+  return texts[env] || env
+}
+
+const getPodStatusType = (status) => {
+  const types = {
+    'Running': 'success',
+    'Pending': 'warning',
+    'Succeeded': 'success',
+    'Failed': 'danger',
+    'Unknown': 'info'
+  }
+  return types[status] || 'info'
+}
+
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now - date
+  
+  // 如果小于1分钟
+  if (diff < 60000) {
+    return '刚刚'
+  }
+  // 如果小于1小时
+  if (diff < 3600000) {
+    return Math.floor(diff / 60000) + '分钟前'
+  }
+  // 如果小于1天
+  if (diff < 86400000) {
+    return Math.floor(diff / 3600000) + '小时前'
+  }
+  // 如果小于7天
+  if (diff < 604800000) {
+    return Math.floor(diff / 86400000) + '天前'
+  }
+  
+  // 否则显示完整日期时间
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 </script>
 
@@ -489,6 +755,42 @@ const getK8sStatusText = (status) => {
 .k8s-stats {
   display: flex;
   gap: 8px;
+}
+
+/* K8s集群详情样式 */
+.detail-info-card {
+  margin-bottom: 20px;
+}
+
+.detail-info-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  line-height: 2;
+}
+
+.info-item label {
+  font-weight: 500;
+  color: #606266;
+  margin-right: 10px;
+  min-width: 100px;
+}
+
+.info-item span {
+  color: #303133;
+}
+
+.info-item .stat-number {
+  font-size: 20px;
+  font-weight: bold;
+  color: #409EFF;
 }
 </style>
 
