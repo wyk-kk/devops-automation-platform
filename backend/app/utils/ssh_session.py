@@ -64,13 +64,14 @@ class SSHSession:
                 height=24
             )
             
-            # 设置shell为非阻塞模式
-            self.shell.setblocking(0)
-            
             self.is_connected = True
             
             # 启动输出读取线程
             self.start_output_thread()
+            
+            # 等待一小段时间让服务器发送欢迎消息和prompt
+            # 这样可以确保用户看到完整的shell提示符
+            time.sleep(0.5)
             
             return True, None
             
@@ -86,14 +87,29 @@ class SSHSession:
         def read_output():
             while self.is_connected and self.shell:
                 try:
+                    # 检查是否有数据可读
                     if self.shell.recv_ready():
                         data = self.shell.recv(4096)
                         if data and self.output_callback:
-                            self.output_callback(data.decode('utf-8', errors='ignore'))
-                    else:
-                        time.sleep(0.01)
+                            text = data.decode('utf-8', errors='ignore')
+                            self.output_callback(text)
+                    
+                    # 检查是否有错误输出
+                    if self.shell.recv_stderr_ready():
+                        data = self.shell.recv_stderr(4096)
+                        if data and self.output_callback:
+                            text = data.decode('utf-8', errors='ignore')
+                            self.output_callback(text)
+                    
+                    # 短暂休眠避免CPU占用过高
+                    time.sleep(0.01)
+                    
                 except Exception as e:
                     print(f"读取输出错误: {e}")
+                    if self.is_connected:
+                        # 如果仍然连接状态但读取出错，说明连接可能断开
+                        if self.output_callback:
+                            self.output_callback(f"\r\n\x1b[1;31m[连接已断开: {e}]\x1b[0m\r\n")
                     break
         
         self.read_thread = threading.Thread(target=read_output, daemon=True)

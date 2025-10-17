@@ -184,14 +184,14 @@ const connectWebSocket = () => {
   const port = import.meta.env.VITE_API_PORT || '8000'
   const wsUrl = `${protocol}//${host}:${port}/api/ws/ssh/${props.serverId}`
 
-  terminal.writeln('\x1b[1;33m正在连接SSH...\x1b[0m')
+  // 显示连接中状态，但不换行
+  terminal.write('\x1b[90m正在连接...\x1b[0m')
 
   try {
     websocket = new WebSocket(wsUrl)
 
     websocket.onopen = () => {
-      isConnected.value = true
-      emit('connected')
+      // WebSocket已打开，等待SSH连接
     }
 
     websocket.onmessage = (event) => {
@@ -200,20 +200,30 @@ const connectWebSocket = () => {
         
         switch (message.type) {
           case 'output':
+            // 直接显示服务器输出（包括欢迎消息和命令提示符）
             terminal.write(message.data)
             break
           
           case 'connected':
-            terminal.writeln(`\r\n\x1b[1;32m✓ ${message.message}\x1b[0m\r\n`)
+            // SSH连接成功，清除"正在连接..."并标记为已连接
+            terminal.write('\r\x1b[K')  // 清除当前行
+            isConnected.value = true
+            emit('connected')
+            // 发送终端大小
+            sendTerminalSize()
             break
           
           case 'error':
-            terminal.writeln(`\r\n\x1b[1;31m✗ 错误: ${message.message}\x1b[0m\r\n`)
+            terminal.write('\r\x1b[K')  // 清除"正在连接..."
+            terminal.writeln(`\x1b[1;31m✗ 错误: ${message.message}\x1b[0m\r\n`)
+            isConnected.value = false
             emit('error', message.message)
             break
           
           case 'disconnected':
-            terminal.writeln('\r\n\x1b[1;33m连接已断开\x1b[0m\r\n')
+            if (isConnected.value) {
+              terminal.writeln('\r\n\x1b[1;33m连接已断开\x1b[0m')
+            }
             isConnected.value = false
             emit('disconnected')
             break
@@ -225,7 +235,8 @@ const connectWebSocket = () => {
 
     websocket.onerror = (error) => {
       console.error('WebSocket错误:', error)
-      terminal.writeln('\r\n\x1b[1;31mWebSocket连接错误\x1b[0m\r\n')
+      terminal.write('\r\x1b[K')  // 清除"正在连接..."
+      terminal.writeln('\x1b[1;31mWebSocket连接错误\x1b[0m')
       isConnected.value = false
       emit('error', 'WebSocket连接错误')
     }
