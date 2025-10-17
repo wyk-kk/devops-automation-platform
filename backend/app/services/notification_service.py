@@ -20,16 +20,22 @@ class NotificationService:
         alert: Alert,
         rule_id: Optional[int],
         recipient: str,
-        smtp_host: str = "smtp.gmail.com",
-        smtp_port: int = 587,
-        smtp_user: str = "",
-        smtp_password: str = ""
+        smtp_host: Optional[str] = None,
+        smtp_port: Optional[int] = None,
+        smtp_user: Optional[str] = None,
+        smtp_password: Optional[str] = None
     ) -> AlertNotification:
         """
         发送邮件通知
         
         注意：需要配置 SMTP 服务器信息
         """
+        # 从配置文件读取SMTP设置
+        smtp_host = smtp_host or settings.SMTP_HOST
+        smtp_port = smtp_port or settings.SMTP_PORT
+        smtp_user = smtp_user or settings.SMTP_USER
+        smtp_password = smtp_password or settings.SMTP_PASSWORD
+        
         notification = AlertNotification(
             alert_id=alert.id,
             rule_id=rule_id,
@@ -41,6 +47,22 @@ class NotificationService:
         db.commit()
         
         try:
+            # 检查SMTP是否已配置
+            if not settings.SMTP_ENABLED:
+                notification.status = "skipped"
+                notification.error_message = "邮件通知未启用 (SMTP_ENABLED=False)"
+                print(f"⚠️  邮件通知未启用，跳过发送到 {recipient}")
+                db.commit()
+                db.refresh(notification)
+                return notification
+            
+            if not smtp_user or not smtp_password:
+                notification.status = "skipped"
+                notification.error_message = "SMTP账号未配置 (SMTP_USER或SMTP_PASSWORD为空)"
+                print(f"⚠️  SMTP账号未配置，跳过发送邮件到 {recipient}")
+                db.commit()
+                db.refresh(notification)
+                return notification
             # 创建邮件内容
             msg = MIMEMultipart('alternative')
             msg['Subject'] = f"[{alert.level.upper()}] {alert.title}"
@@ -113,24 +135,33 @@ class NotificationService:
             msg.attach(part2)
             
             # 发送邮件
-            if smtp_user and smtp_password:  # 只有配置了SMTP才发送
-                server = smtplib.SMTP(smtp_host, smtp_port)
-                server.starttls()
-                server.login(smtp_user, smtp_password)
-                server.send_message(msg)
-                server.quit()
-                
-                # 更新状态为已发送
-                notification.status = "sent"
-                notification.sent_at = datetime.utcnow()
-            else:
-                # 未配置SMTP，仅记录
-                notification.status = "skipped"
-                notification.error_message = "SMTP未配置"
+            print(f"📧 正在发送邮件到 {recipient}...")
+            print(f"   SMTP服务器: {smtp_host}:{smtp_port}")
+            print(f"   发件人: {smtp_user}")
             
+            server = smtplib.SMTP(smtp_host, smtp_port)
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(msg)
+            server.quit()
+            
+            # 更新状态为已发送
+            notification.status = "sent"
+            notification.sent_at = datetime.utcnow()
+            print(f"✅ 邮件发送成功到 {recipient}")
+            
+        except smtplib.SMTPAuthenticationError as e:
+            notification.status = "failed"
+            notification.error_message = f"SMTP认证失败: {str(e)}"
+            print(f"❌ 邮件发送失败 (认证错误): {str(e)}")
+        except smtplib.SMTPException as e:
+            notification.status = "failed"
+            notification.error_message = f"SMTP错误: {str(e)}"
+            print(f"❌ 邮件发送失败 (SMTP错误): {str(e)}")
         except Exception as e:
             notification.status = "failed"
             notification.error_message = str(e)
+            print(f"❌ 邮件发送失败: {str(e)}")
         
         db.commit()
         db.refresh(notification)

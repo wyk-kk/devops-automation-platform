@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "基于FastAPI的运维自动化管理平台"
     
+    # SMTP邮件配置（用于告警通知）
+    SMTP_ENABLED: bool = False  # 是否启用邮件通知
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""  # 发件人邮箱
+    SMTP_PASSWORD: str = ""  # 邮箱密码或应用专用密码
+    SMTP_FROM_NAME: str = "运维自动化平台"
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
